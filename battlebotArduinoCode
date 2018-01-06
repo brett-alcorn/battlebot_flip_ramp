@@ -1,0 +1,150 @@
+/*
+  Battlebot Code
+  by Brett Alcorn
+  on 01/04/18
+
+  This code takes the input from a wireless xbox 360 controller
+  through a wireless PC adapter and the Arduino USB shield v2.0
+  from Circuits@Home. The robot has 2 wheels, a rotating drum
+  weapon, and a servo that controls a stopping brake on the drum
+  which is used to attempt a flipping motion.
+
+  Based on:
+  Example sketch for the Xbox Wireless Reciver library - developed by Kristian Lauszus
+  It supports up to four controllers wirelessly
+  For more information see the blog post:
+  http://blog.tkjelectronics.dk/2012/12/xbox-360-receiver-added-to-the-usb-host-library/ or
+  send an e-mail:  kristianl@tkjelectronics.com
+*/
+
+//FUNCTIONS:
+
+void startXboxWireless {
+  //Begins xbox wireless receiver comms and outputs to serial for debugging
+  //Xbox wireless reciever connect + serial outputs
+  Serial.begin(115200);
+#if !defined(__MIPSEL__)
+  while (!Serial); // Wait for serial port to connect
+#endif
+  if (Usb.Init() == -1) {
+    Serial.print(F("\r\nOSC did not start"));
+    while (1); //halt
+  }
+  Serial.print(F("\r\nXbox Wireless Receiver Library Started"));
+}
+
+double scaleMotorPower(double motorPower) {
+  //Scales input signal relative to output signal for drive motor power
+  //Scaling equation coefficients generated with Excel curve-fit and experimental testing
+  //Scaling equation requires input range of [-100 to 100] and output range of [-100 to 100]
+  double a = 1e-4, b = -9e-17, c = 1.59e-2, d = 3e-12;
+  motorPower = a * pow(motorPower, 3) + b * pow(motorPower, 2) + c * (motorPower) + d;
+  return motorPower;
+}
+
+double tankDrive(int inputL, inputR, joystickDeadzone) {
+  if (inputL > joystickDeadzone) {
+  lDriveMotorPower = map(Xbox.getAnalogHat(LeftHatY, i), -32768, 32767, -100, 100);
+  lDriveMotorPower = map(scaleMotorPower(lDriveMotorPower),-100,100,0,179);
+  rDriveMotorPower = map(Xbox.getAnalogHat(RightHatY, i), -32768, 32767, -100, 100);
+  rDriveMotorPower = map(scaleMotorPower(rDriveMotorPower),-100,100,0,179);
+  return ;
+}
+
+//RESOURCES:
+// Satisfy the IDE, which needs to see the include statment in the ino too.
+#include <Servo.h>
+#include <XBOXRECV.h>
+#ifdef dobogusinclude
+#include <spi4teensy3.h>
+#include <SPI.h>
+#endif
+USB Usb;
+XBOXRECV Xbox(&Usb);
+
+//INPUT:
+//DEAZONE, ANALOG STICK(default = 7500)
+int joystickDeadzone = 8000;
+
+//OUTPUT:
+//Right+Left Drive Motors use Fingertech tinyESCs, Drum Motor uses a hobbyking
+//30A reversible brushless esc from hobbyking, Brake Servo is a standard servo
+//All speed controllers expect standard servo input signals
+//Note: pins 9&10 cant control servos? - may be board dependent issue
+int rDriveMotorPin = 1, lDriveMotorPin = 4, drumMotorPin = 2, brakeServoPin = 7;
+int servoPin[] = {rDriveMotorPin, lDriveMotorPin, drumMotorPin, brakeServoPin};
+Servo servoList[] = {rDriveMotor, lDriveMotor, drumMotor, brakeServo};
+//POLARITY, MOTORS: (Switch between true and false depending on motor wiring)
+boolean rDriveMotorPol = true, lDriveMotorPol = false, drumMotorPol = true;
+
+void setup() {
+  startXboxWireless();
+  for (int i = 0; j < (sizeof(servoList) / sizeof(servoList(1))); i++) {
+    servoList(i).attach(servoPin(i));
+  }
+}
+
+void loop() {
+  Usb.Task();
+  i = 1;
+  boolean driveMode = true; //default drive mode at startup
+  while (Xbox.XboxReceiverConnected) { //Checks if the receiver is connected to the USB shield
+    while (Xbox.Xbox360Connected[i]) { //Checks if xbox controller connected to receiver
+
+      //Define integer variables
+      int LDriveMotorPower, RDriveMotorPower, DrumMotorPower, BrakeServoAngle;
+
+      //Define boolean variables and assign to digital button inputs
+      boolean driveModeToggle = Xbox.getButtonClick(Y, i), brakeEngage = Xbox.getButtonClick(A, i),
+              DrumPresetFwd = Xbox.getButtonClick(R1, i), DrumPresetRev = Xbox.getButtonClick(L1, i);
+
+      //Map analog trigger input to drum motor power
+      if (Xbox.getButtonPress(R2, i) > 0) {
+        DrumMotorPower = map(Xbox.getButtonPress(R2, i), 0, 255, 0, 100);
+        DrumMotorPower = map(scaleMotorPower(DrumMotorPower), 0, 100, 89, 179);
+      }
+      else {
+        DrumMotorPower = map(Xbox.getButtonPress(L2, i), 0, 255, 0, 100);
+        DrumMotorPower = map(scaleMotorPower(DrumMotorPower), 0, 100, 89, 0);
+      }
+
+      //Get analog joystick input
+      if (driveModeToggle) {
+        driveMode = !driveMode;
+      }
+      if (driveMode) { //Standard Drive Mode (One stick, mixed)
+        if (Xbox.getAnalogHat(LeftHatY, i) > joystickDeadzone) {
+          lDriveMotorPower = map(Xbox.getAnalogHat(LeftHatY, i), -32768, 32767, -100, 100);
+          lDriveMotorPower = map(scaleMotorPower(lDriveMotorPower), -100, 100, 0, 179);
+          rDriveMotorPower = map(Xbox.getAnalogHat(LeftHatY, i), -32768, 32767, -100, 100);
+          rDriveMotorPower = map(scaleMotorPower(rDriveMotorPower), -100, 100, 0, 179);
+        }
+        else if (Xbox.getAnalogHat(LeftHatX, i) > joystickDeadzone) {
+          int driveMotorDiff = map(Xbox.getAnalogHat(LeftHatX, i), -32768, 32767, -100, 100);
+
+          if (driveMotorDiff > 0) {
+
+          }
+          if (driveMotorDiff < 0) {
+
+          }
+          else {
+
+          }
+          lDriveMotorPower = lDriveMotorPower - driveMotorDiff;
+          rDriveMotorPower = rDriveMotorPower - driveMotorDiff;
+        }
+        else {
+          lDriveMotorPower = 79;
+          rDriveMotorPower = 79;
+        }
+      }
+      else() { //Alternate Drive Mode (Tank Drive)
+        lDriveMotorPower = map(Xbox.getAnalogHat(LeftHatY, i), -32768, 32767, -100, 100);
+        lDriveMotorPower = map(scaleMotorPower(lDriveMotorPower, a, b, c, d));
+        rDriveMotorPower = map(Xbox.getAnalogHat(RightHatY, i), -32768, 32767, -100, 100);
+        rDriveMotorPower = map(scaleMotorPower(rDriveMotorPower, a, b, c, d));
+      }
+    }
+  }
+}
